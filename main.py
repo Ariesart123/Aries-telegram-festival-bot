@@ -6,7 +6,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from PIL import Image, ImageDraw, ImageFont
 
 # ================= CONFIG =================
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+BOT_TOKEN = "8163939058:AAHi-1Md5aWgRTj_XjlCsdIf8MVTBxgEB38"
 NUMBERS_API = "http://numbersapi.com"
 WATERMARK = "Aries Editz"
 OUTPUT_DIR = "images"
