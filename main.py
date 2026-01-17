@@ -1,177 +1,142 @@
-import time
-import threading
-import schedule
+import os
 import requests
-import sqlite3
-import io
 from datetime import datetime
-
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from PIL import Image, ImageDraw, ImageFont
 
 # ================= CONFIG =================
-BOT_TOKEN = "8163939058:AAHi-1Md5aWgRTj_XjlCsdIf8MVTBxgEB38"
-CALENDARIFIC_API_KEY = "txouJTuJpPsrYttzXEJovNa6hBn04yuk"
+BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+NUMBERS_API = "http://numbersapi.com"
+WATERMARK = "Aries Editz"
+OUTPUT_DIR = "images"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+# =========================================
 
-# ================= DATABASE =================
-db = sqlite3.connect("bot.db", check_same_thread=False)
-cur = db.cursor()
-cur.execute("CREATE TABLE IF NOT EXISTS groups (gid INTEGER PRIMARY KEY)")
-db.commit()
 
-def get_groups():
-    cur.execute("SELECT gid FROM groups")
-    return [x[0] for x in cur.fetchall()]
+def get_today_facts():
+    today = datetime.now()
+    month = today.month
+    day = today.day
 
-# ================= FESTIVAL DETECTION =================
-FIXED_FESTIVALS = {
-    "01-01": "NEW YEAR",
-    "26-01": "REPUBLIC DAY",
-    "15-08": "INDEPENDENCE DAY",
-    "02-10": "GANDHI JAYANTI",
-    "25-12": "CHRISTMAS",
-}
+    facts = []
 
-def detect_today_festival():
-    now = datetime.now()
-    key = now.strftime("%d-%m")
-
-    if key in FIXED_FESTIVALS:
-        return FIXED_FESTIVALS[key]
-
+    # Numbers API – history
     try:
-        url = (
-            "https://calendarific.com/api/v2/holidays"
-            f"?api_key={CALENDARIFIC_API_KEY}"
-            f"&country=IN&year={now.year}"
-            f"&month={now.month}&day={now.day}"
-        )
-        data = requests.get(url, timeout=6).json()
-        holidays = data.get("response", {}).get("holidays", [])
-        if holidays:
-            return holidays[0]["name"].upper()
+        r = requests.get(f"{NUMBERS_API}/{month}/{day}/date", timeout=10)
+        if r.status_code == 200 and r.text:
+            facts.append(r.text)
     except:
         pass
 
-    return None
+    # Always fallback facts (never empty)
+    if not facts:
+        facts = [
+            "Important historical events happened on this day.",
+            "This day has witnessed major moments in world history.",
+            "A remarkable day remembered across generations."
+        ]
 
-# ================= IMAGE GENERATOR (FIXED) =================
-def generate_image(date_str, title):
-    W, H = 1280, 720
-    img = Image.new("RGB", (W, H), (15, 15, 25))
+    return facts, today.strftime("%d %B")
+
+
+def generate_hd_image(date_text, facts):
+    W, H = 1920, 1080
+    img = Image.new("RGB", (W, H), "#000000")
     d = ImageDraw.Draw(img)
 
-    # Smooth gradient background (NO STRIPS)
-    top = (30, 40, 80)
-    bottom = (8, 8, 15)
-
+    # -------- Smooth Gradient Background --------
     for y in range(H):
-        r = int(top[0] + (bottom[0] - top[0]) * (y / H))
-        g = int(top[1] + (bottom[1] - top[1]) * (y / H))
-        b = int(top[2] + (bottom[2] - top[2]) * (y / H))
-        d.line((0, y, W, y), fill=(r, g, b))
+        r = int(20 + (y / H) * 40)
+        g = int(30 + (y / H) * 70)
+        b = int(60 + (y / H) * 110)
+        d.line([(0, y), (W, y)], fill=(r, g, b))
 
-    # Center focus panel
-    panel = Image.new("RGBA", (W - 200, 220), (0, 0, 0, 160))
-    img.paste(panel, (100, H // 2 - 110), panel)
-    d = ImageDraw.Draw(img)
-
+    # -------- Fonts --------
     try:
-        title_f = ImageFont.truetype("arial.ttf", 88)
-        date_f = ImageFont.truetype("arial.ttf", 40)
-        brand_f = ImageFont.truetype("arial.ttf", 28)
+        title_font = ImageFont.truetype("arialbd.ttf", 90)
+        date_font = ImageFont.truetype("arial.ttf", 42)
+        info_font = ImageFont.truetype("arial.ttf", 38)
+        watermark_font = ImageFont.truetype("arialbd.ttf", 36)
     except:
-        title_f = date_f = brand_f = ImageFont.load_default()
+        title_font = ImageFont.load_default()
+        date_font = ImageFont.load_default()
+        info_font = ImageFont.load_default()
+        watermark_font = ImageFont.load_default()
 
-    # Strong glowing title
-    for s in range(10, 0, -2):
-        d.text(
-            (W // 2, H // 2 - 30),
-            title,
-            font=title_f,
-            anchor="mm",
-            fill=(255, 190, 120),
-            stroke_width=s,
-            stroke_fill=(255, 190, 120),
-        )
-
+    # -------- Title --------
     d.text(
-        (W // 2, H // 2 - 30),
-        title,
-        font=title_f,
-        anchor="mm",
-        fill="white",
+        (W // 2, 180),
+        "WHAT'S SPECIAL TODAY?",
+        fill=(255, 255, 255),
+        font=title_font,
+        anchor="mm"
     )
 
-    # Date
+    # -------- Date --------
     d.text(
-        (W // 2, H // 2 + 45),
-        date_str,
-        font=date_f,
-        anchor="mm",
-        fill=(210, 210, 210),
+        (W // 2, 280),
+        date_text,
+        fill=(220, 220, 220),
+        font=date_font,
+        anchor="mm"
     )
 
-    # Branding (inside image)
+    # -------- Facts --------
+    y = 420
+    for fact in facts[:3]:
+        wrapped = text_wrap(fact, info_font, W - 300)
+        for line in wrapped:
+            d.text((W // 2, y), line, fill=(245, 245, 245), font=info_font, anchor="mm")
+            y += 50
+        y += 20
+
+    # -------- Watermark --------
     d.text(
-        (W - 30, H - 30),
-        "𝐴𝑟𝑖𝑒𝑠 𝐸𝑑𝑖𝑡𝑧",
-        font=brand_f,
-        anchor="rd",
-        fill=(180, 180, 180),
+        (W - 40, H - 30),
+        WATERMARK,
+        fill=(200, 200, 200),
+        font=watermark_font,
+        anchor="rs"
     )
 
-    out = io.BytesIO()
-    img.save(out, format="JPEG", quality=95)
-    out.seek(0)
-    return out
+    path = f"{OUTPUT_DIR}/today_hd.jpg"
+    img.save(path, quality=95, subsampling=0)
+    return path
+
+
+def text_wrap(text, font, max_width):
+    words = text.split()
+    lines = []
+    current = ""
+
+    for word in words:
+        test = current + word + " "
+        w, h = font.getsize(test)
+        if w <= max_width:
+            current = test
+        else:
+            lines.append(current.strip())
+            current = word + " "
+    lines.append(current.strip())
+    return lines
+
 
 # ================= COMMAND =================
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    festival = detect_today_festival()
-    date_str = datetime.now().strftime("%d %B")
-    title = f"HAPPY {festival}" if festival else "WHAT'S SPECIAL TODAY?"
-    image = generate_image(date_str, title)
+    facts, date_text = get_today_facts()
+    image_path = generate_hd_image(date_text, facts)
 
-    # IMAGE ONLY (NO TEXT, NO CAPTION)
-    await update.message.reply_photo(photo=image)
+    await update.message.reply_photo(photo=open(image_path, "rb"))
 
-async def addgroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    gid = update.effective_chat.id
-    cur.execute("INSERT OR IGNORE INTO groups VALUES (?)", (gid,))
-    db.commit()
-
-# ================= AUTO MORNING =================
-def auto_morning(app):
-    festival = detect_today_festival()
-    date_str = datetime.now().strftime("%d %B")
-    title = f"HAPPY {festival}" if festival else "WHAT'S SPECIAL TODAY?"
-    image = generate_image(date_str, title)
-
-    for gid in get_groups():
-        try:
-            app.bot.send_photo(gid, photo=image)
-        except:
-            pass
-
-def scheduler(app):
-    schedule.every().day.at("07:00").do(lambda: auto_morning(app))
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
 
 # ================= MAIN =================
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("today", today))
-    app.add_handler(CommandHandler("addgroup", addgroup))
-
-    threading.Thread(target=scheduler, args=(app,), daemon=True).start()
-
-    print("🤖 Bot running — IMAGE ONLY, FIXED DESIGN")
+    print("🤖 Bot running safely")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
