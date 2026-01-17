@@ -145,14 +145,11 @@ schedule.every().day.at("08:00").do(check_lunar_festivals)
 schedule.every().sunday.at("20:00").do(send_weekly_summary)
 
 # ================= BOT START =================
-updater = Updater(BOT_TOKEN)
-dp = updater.dispatcher
-dp.add_handler(CommandHandler("today", today))
-dp.add_handler(CommandHandler("help", help_cmd))
+app = Application.builder().token(BOT_TOKEN).build()
 
-updater.start_polling()
-print("🤖 Bot running with /help command added...")
+app.add_handler(CommandHandler("today", today))
+app.add_handler(CommandHandler("help", help_cmd))
 
-while True:
-    schedule.run_pending()
-    time.sleep(1)
+print("🤖 Bot is running...")
+app.run_polling()
+
