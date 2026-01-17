@@ -1,4 +1,5 @@
 python-telegram-bot==22.5
-schedule
 requests
+schedule
 google-generativeai
+Pillow
